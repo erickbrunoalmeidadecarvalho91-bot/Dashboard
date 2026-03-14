@@ -442,8 +442,7 @@ export default function App() {
   // Auto-connect and check status
   useEffect(() => {
     if (credentials.appId && credentials.appSecret) {
-      checkConnection();
-      fetchData();
+      handleInitialConnect();
       
       // Auto-check every 30 seconds
       const interval = setInterval(() => {
@@ -457,9 +456,16 @@ export default function App() {
     }
   }, [credentials]);
 
+  const handleInitialConnect = async () => {
+    const success = await checkConnection();
+    if (success) {
+      fetchData();
+    }
+  };
+
   const checkConnection = async () => {
     try {
-      const res = await fetch('/api/shopee/auth', {
+      const res = await fetch('/api/shopee/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credentials)
@@ -467,29 +473,39 @@ export default function App() {
       
       if (res.ok) {
         setStatus('CONNECTED');
+        return true;
       } else {
         setStatus('CONNECTION ERROR');
+        return false;
       }
     } catch (error) {
       setStatus('CONNECTION ERROR');
+      return false;
     }
   };
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/shopee/data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credentials)
-      });
+      // Fetch stats and products in parallel
+      const [statsRes, productsRes] = await Promise.all([
+        fetch('/api/shopee/stats'),
+        fetch('/api/shopee/products')
+      ]);
       
-      if (res.ok) {
-        const result = await res.json();
-        setData(result);
+      if (statsRes.ok && productsRes.ok) {
+        const stats = await statsRes.json();
+        const products = await productsRes.json();
+        setData({
+          ...stats,
+          topProducts: products
+        });
+      } else {
+        setStatus('CONNECTION ERROR');
       }
     } catch (error) {
       console.error("Failed to fetch data", error);
+      setStatus('CONNECTION ERROR');
     } finally {
       setIsLoading(false);
     }
@@ -533,6 +549,20 @@ export default function App() {
                 ) : isLoading && !data ? (
                   <div className="flex items-center justify-center h-[60vh]">
                     <div className="w-12 h-12 border-4 border-purple-600/20 border-t-purple-600 rounded-full animate-spin" />
+                  </div>
+                ) : status === 'CONNECTION ERROR' ? (
+                  <div className="flex flex-col items-center justify-center h-[60vh] text-center">
+                    <div className="w-20 h-20 rounded-3xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center mb-6 shadow-2xl">
+                      <AlertCircle className="w-10 h-10 text-orange-500" />
+                    </div>
+                    <h3 className="text-2xl font-bold text-white mb-2">Unable to connect to Shopee API</h3>
+                    <p className="text-zinc-500 max-w-md mb-8">Houve um problema ao autenticar ou buscar dados da Shopee. Verifique suas credenciais.</p>
+                    <button 
+                      onClick={() => setActiveTab('settings')}
+                      className="bg-zinc-800 hover:bg-zinc-700 text-white px-8 py-3 rounded-xl font-bold transition-all border border-zinc-700"
+                    >
+                      Revisar Configurações
+                    </button>
                   </div>
                 ) : data ? (
                   <>
@@ -592,13 +622,7 @@ export default function App() {
                     <ChartsSection data={data.charts} />
                     <ProductAnalytics products={data.topProducts} />
                   </>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-[60vh] text-center">
-                    <AlertCircle className="w-12 h-12 text-orange-500 mb-4" />
-                    <h3 className="text-xl font-bold text-white">Erro ao carregar dados</h3>
-                    <p className="text-zinc-500">Verifique suas credenciais nas configurações.</p>
-                  </div>
-                )}
+                ) : null}
               </motion.div>
             )}
 
